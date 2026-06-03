@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import boto3
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from aws_lambda_powertools import Logger
@@ -8,9 +9,11 @@ logger = Logger(service="databricks-cert-rag-query")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
+EMBEDDING_MODEL_ID = "cohere.embed-english-v3"
 EMBEDDING_DIM = 1024
 TOP_K = 5
+MAX_RETRIES = 5
+RETRY_BASE_DELAY = 3
 
 
 def get_opensearch_client() -> OpenSearch:
@@ -42,33 +45,46 @@ def get_bedrock_client():
 def embed_query(query: str) -> list[float]:
     bedrock_client = get_bedrock_client()
 
+    body = json.dumps({
+        "texts": [query],
+        "input_type": "search_query",
+    })
+
     logger.info("Embedding query", extra={
         "query": query,
         "model": EMBEDDING_MODEL_ID,
+        "input_type": "search_query",
     })
 
-    body = json.dumps({
-        "inputText": query,
-        "dimensions": EMBEDDING_DIM,
-        "normalize": True,
-    })
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=EMBEDDING_MODEL_ID,
+                body=body,
+                contentType="application/json",
+                accept="application/json",
+            )
+            result = json.loads(response["body"].read())
+            embedding = result["embeddings"][0]
 
-    response = bedrock_client.invoke_model(
-        modelId=EMBEDDING_MODEL_ID,
-        body=body,
-        contentType="application/json",
-        accept="application/json",
-    )
+            logger.info("Query embedded successfully", extra={
+                "query": query,
+                "embedding_dim": len(embedding),
+            })
 
-    result = json.loads(response["body"].read())
-    embedding = result["embedding"]
+            return embedding
 
-    logger.info("Query embedded successfully", extra={
-        "query": query,
-        "embedding_dim": len(embedding),
-    })
-
-    return embedding
+        except bedrock_client.exceptions.ThrottlingException as e:
+            wait = RETRY_BASE_DELAY * (2 ** attempt)
+            logger.warning("Throttled by Bedrock, retrying", extra={
+                "attempt": attempt + 1,
+                "wait_seconds": wait,
+            })
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(wait)
+            else:
+                logger.error("Max retries exceeded", extra={"error": str(e)})
+                raise
 
 
 def search(query: str, exam_name: str = None, top_k: int = TOP_K) -> list[dict]:

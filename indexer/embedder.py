@@ -10,12 +10,12 @@ logger = Logger(service="databricks-cert-rag-indexer")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
+EMBEDDING_MODEL_ID = "cohere.embed-english-v3"
 EMBEDDING_DIM = 1024
-BATCH_SIZE = 10
-MAX_WORKERS = 2
+BATCH_SIZE = 20
+MAX_WORKERS = 3
 MAX_RETRIES = 5
-RETRY_BASE_DELAY = 2
+RETRY_BASE_DELAY = 3
 
 
 def get_opensearch_client() -> OpenSearch:
@@ -89,11 +89,10 @@ def ensure_index_exists(client: OpenSearch):
     logger.info("Index created successfully", extra={"index": OPENSEARCH_INDEX})
 
 
-def embed_single(text: str, bedrock_client) -> list[float]:
+def embed_texts(texts: list[str], bedrock_client, input_type: str = "search_document") -> list[list[float]]:
     body = json.dumps({
-        "inputText": text,
-        "dimensions": EMBEDDING_DIM,
-        "normalize": True,
+        "texts": texts,
+        "input_type": input_type,
     })
 
     for attempt in range(MAX_RETRIES):
@@ -105,7 +104,7 @@ def embed_single(text: str, bedrock_client) -> list[float]:
                 accept="application/json",
             )
             result = json.loads(response["body"].read())
-            return result["embedding"]
+            return result["embeddings"]
 
         except bedrock_client.exceptions.ThrottlingException as e:
             wait = RETRY_BASE_DELAY * (2 ** attempt)
@@ -122,14 +121,17 @@ def embed_single(text: str, bedrock_client) -> list[float]:
 
 
 def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dict]:
+    texts = [c["chunk_text"] for c in batch]
+
     logger.info("Embedding batch", extra={
         "batch_index": batch_index,
-        "batch_size": len(batch),
+        "batch_size": len(texts),
     })
 
-    for chunk in batch:
-        chunk["embedding"] = embed_single(chunk["chunk_text"], bedrock_client)
-        time.sleep(0.3)
+    embeddings = embed_texts(texts, bedrock_client, input_type="search_document")
+
+    for i, chunk in enumerate(batch):
+        chunk["embedding"] = embeddings[i]
 
     logger.info("Batch embedded successfully", extra={
         "batch_index": batch_index,
