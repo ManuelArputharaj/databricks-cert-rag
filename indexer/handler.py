@@ -5,9 +5,9 @@ import tempfile
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
-from pdf_parser import parse_pdf
-from chunker import chunk_pages
-from embedder import embed_and_index
+from indexer.pdf_parser import parse_pdf
+from indexer.chunker import chunk_pages
+from indexer.embedder import embed_and_index
 
 logger = Logger(service="databricks-cert-rag-indexer")
 

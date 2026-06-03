@@ -2,8 +2,9 @@ import json
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
-from search import search
-from router import route
+from lambda_query.search import search
+from lambda_query.router import route
+
 
 logger = Logger(service="databricks-cert-rag-query")
 
