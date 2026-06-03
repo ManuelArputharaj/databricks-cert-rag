@@ -21,7 +21,10 @@ def get_opensearch_client() -> OpenSearch:
 
     host = endpoint.replace("https://", "").replace("http://", "").rstrip("/")
 
-    logger.info("Connecting to OpenSearch", extra={"host": host, "index": OPENSEARCH_INDEX})
+    logger.info("Connecting to OpenSearch", extra={
+        "host": host,
+        "index": OPENSEARCH_INDEX,
+    })
 
     return OpenSearch(
         hosts=[{"host": host, "port": 443}],
@@ -66,8 +69,8 @@ def ensure_index_exists(client: OpenSearch):
                     "dimension": EMBEDDING_DIM,
                     "method": {
                         "name": "hnsw",
-                        "space_type": "cosinesimil",
-                        "engine": "nmslib",
+                        "space_type": "innerproduct",
+                        "engine": "faiss",
                         "parameters": {
                             "ef_construction": 128,
                             "m": 24,
