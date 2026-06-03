@@ -38,7 +38,7 @@ custom:
 functions:
 
   indexer:
-    handler: indexer/handler.lambda_handler
+    handler: indexer.handler.lambda_handler
     role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
     timeout: 900
     memorySize: 3008
@@ -53,7 +53,7 @@ functions:
           existing: true
 
   query:
-    handler: lambda_query/handler.lambda_handler
+    handler: lambda_query.handler.lambda_handler
     role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
     timeout: 29
     memorySize: 3008
