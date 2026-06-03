@@ -1,7 +1,7 @@
 import os
 import json
 import time
-import boto3
+from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
 from aws_lambda_powertools import Logger
@@ -9,9 +9,8 @@ from aws_lambda_powertools import Logger
 logger = Logger(service="databricks-cert-rag-indexer")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
-BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-EMBEDDING_MODEL_ID = "cohere.embed-english-v3"
-EMBEDDING_DIM = 1024
+EMBEDDING_MODEL_ID = "text-embedding-3-small"
+EMBEDDING_DIM = 1536
 BATCH_SIZE = 20
 MAX_WORKERS = 3
 MAX_RETRIES = 5
@@ -40,8 +39,8 @@ def get_opensearch_client() -> OpenSearch:
     )
 
 
-def get_bedrock_client():
-    return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
+def get_openai_client() -> OpenAI:
+    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 def ensure_index_exists(client: OpenSearch):
@@ -102,29 +101,23 @@ def truncate_text(text: str) -> str:
     return text
 
 
-def embed_texts(texts: list[str], bedrock_client, input_type: str = "search_document") -> list[list[float]]:
-    body = json.dumps({
-        "texts": texts,
-        "input_type": input_type,
-    })
-
+def embed_texts(texts: list[str], openai_client: OpenAI, input_type: str = "search_document") -> list[list[float]]:
     for attempt in range(MAX_RETRIES):
         try:
-            response = bedrock_client.invoke_model(
-                modelId=EMBEDDING_MODEL_ID,
-                body=body,
-                contentType="application/json",
-                accept="application/json",
+            response = openai_client.embeddings.create(
+                model=EMBEDDING_MODEL_ID,
+                input=texts,
             )
-            result = json.loads(response["body"].read())
-            return result["embeddings"]
+            # Sort by index to ensure order matches input
+            return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
 
-        except bedrock_client.exceptions.ThrottlingException as e:
+        except Exception as e:
             wait = RETRY_BASE_DELAY * (2 ** attempt)
-            logger.warning("Throttled by Bedrock, retrying", extra={
+            logger.warning("OpenAI embedding failed, retrying", extra={
                 "attempt": attempt + 1,
                 "max_retries": MAX_RETRIES,
                 "wait_seconds": wait,
+                "error": str(e),
             })
             if attempt < MAX_RETRIES - 1:
                 time.sleep(wait)
@@ -133,7 +126,7 @@ def embed_texts(texts: list[str], bedrock_client, input_type: str = "search_docu
                 raise
 
 
-def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dict]:
+def embed_batch(batch: list[dict], openai_client: OpenAI, batch_index: int) -> list[dict]:
     texts = [truncate_text(c["chunk_text"]) for c in batch]
 
     logger.info("Embedding batch", extra={
@@ -141,7 +134,7 @@ def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dic
         "batch_size": len(texts),
     })
 
-    embeddings = embed_texts(texts, bedrock_client, input_type="search_document")
+    embeddings = embed_texts(texts, openai_client)
 
     for i, chunk in enumerate(batch):
         chunk["embedding"] = embeddings[i]
@@ -155,7 +148,7 @@ def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dic
 
 
 def embed_and_index(chunks: list[dict]) -> dict:
-    bedrock_client = get_bedrock_client()
+    openai_client = get_openai_client()
     os_client = get_opensearch_client()
 
     ensure_index_exists(os_client)
@@ -174,7 +167,7 @@ def embed_and_index(chunks: list[dict]) -> dict:
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
-            executor.submit(embed_batch, batch, bedrock_client, i): i
+            executor.submit(embed_batch, batch, openai_client, i): i
             for i, batch in enumerate(batches)
         }
 

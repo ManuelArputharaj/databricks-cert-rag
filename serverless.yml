@@ -20,6 +20,7 @@ provider:
     OPENSEARCH_INDEX: databricks-cert-guides
     S3_BUCKET: manuel-project-test-bucket
     STAGE: ${opt:stage, 'dev'}
+    OPENAI_API_KEY: ${ssm:/cert-rag/openai-api-key}
 
 package:
   individually: false
