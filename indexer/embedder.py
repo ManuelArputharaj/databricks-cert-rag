@@ -89,6 +89,19 @@ def ensure_index_exists(client: OpenSearch):
     logger.info("Index created successfully", extra={"index": OPENSEARCH_INDEX})
 
 
+MAX_CHAR_LENGTH = 2000
+
+
+def truncate_text(text: str) -> str:
+    if len(text) > MAX_CHAR_LENGTH:
+        logger.debug("Truncating text", extra={
+            "original_length": len(text),
+            "truncated_length": MAX_CHAR_LENGTH,
+        })
+        return text[:MAX_CHAR_LENGTH]
+    return text
+
+
 def embed_texts(texts: list[str], bedrock_client, input_type: str = "search_document") -> list[list[float]]:
     body = json.dumps({
         "texts": texts,
@@ -121,7 +134,7 @@ def embed_texts(texts: list[str], bedrock_client, input_type: str = "search_docu
 
 
 def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dict]:
-    texts = [c["chunk_text"] for c in batch]
+    texts = [truncate_text(c["chunk_text"]) for c in batch]
 
     logger.info("Embedding batch", extra={
         "batch_index": batch_index,

@@ -42,8 +42,16 @@ def get_bedrock_client():
     return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
 
+MAX_CHAR_LENGTH = 2000
+
+
+def truncate_text(text: str) -> str:
+    return text[:MAX_CHAR_LENGTH] if len(text) > MAX_CHAR_LENGTH else text
+
+
 def embed_query(query: str) -> list[float]:
     bedrock_client = get_bedrock_client()
+    query = truncate_text(query)
 
     body = json.dumps({
         "texts": [query],
