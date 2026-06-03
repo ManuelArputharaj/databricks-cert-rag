@@ -8,9 +8,9 @@ EXAM_NAME_MAP = {
     "data-analyst-associate": "Databricks Certified Data Analyst Associate",
     "data-engineer-associate": "Databricks Certified Data Engineer Associate",
     "data-engineer-professional": "Databricks Certified Data Engineer Professional",
-    "genai-engineer-associate": "Databricks Certified Generative AI Engineer Associate",
-    "ml-associate": "Databricks Certified Machine Learning Associate",
-    "ml-professional": "Databricks Certified Machine Learning Professional",
+    "generative-ai-engineer-associate": "Databricks Certified Generative AI Engineer Associate",
+    "machine-learning-associate": "Databricks Certified Machine Learning Associate",
+    "machine-learning-professional": "Databricks Certified Machine Learning Professional",
 }
 
 
@@ -20,13 +20,20 @@ def resolve_exam_name(s3_key: str) -> str:
         if slug in key_lower:
             return name
     filename = s3_key.split("/")[-1].replace(".pdf", "").replace("_", "-")
-    logger.warning("Could not match exam name from S3 key, using filename", extra={"s3_key": s3_key, "fallback": filename})
+    logger.warning("Could not match exam name from S3 key, using filename", extra={
+        "s3_key": s3_key,
+        "fallback": filename,
+    })
     return filename
 
 
 def parse_pdf(local_path: str, s3_key: str) -> list[dict]:
     exam_name = resolve_exam_name(s3_key)
-    logger.info("Starting PDF parse", extra={"s3_key": s3_key, "exam_name": exam_name, "local_path": local_path})
+    logger.info("Starting PDF parse", extra={
+        "s3_key": s3_key,
+        "exam_name": exam_name,
+        "local_path": local_path,
+    })
 
     doc = fitz.open(local_path)
     pages = []
@@ -52,7 +59,10 @@ def parse_pdf(local_path: str, s3_key: str) -> list[dict]:
         })
 
     doc.close()
-    logger.info("PDF parse complete", extra={"s3_key": s3_key, "total_pages": len(pages)})
+    logger.info("PDF parse complete", extra={
+        "s3_key": s3_key,
+        "total_pages": len(pages),
+    })
     return pages
 
 
