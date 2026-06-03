@@ -22,14 +22,25 @@ provider:
     S3_BUCKET: manuel-project-test-bucket
     STAGE: ${opt:stage, 'dev'}
 
+package:
+  individually: false
+  patterns:
+    - '!node_modules/**'
+    - '!.venv/**'
+    - '!__pycache__/**'
+    - '!.git/**'
+    - '!tests/**'
+    - 'indexer/**'
+    - 'lambda_query/**'
+
 plugins:
   - serverless-python-requirements
 
 custom:
   pythonRequirements:
     usePipenv: true
-    zip: true
-    slim: true
+    zip: false
+    slim: false
     noDeploy:
       - pytest
       - black
@@ -56,7 +67,7 @@ functions:
     handler: lambda_query.handler.lambda_handler
     role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
     timeout: 29
-    memorySize: 3008
+    memorySize: 512
     description: "API Gateway triggered - 3-tier RAG routing with OpenSearch and Claude"
     events:
       - http:
