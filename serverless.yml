@@ -1,0 +1,61 @@
+service: databricks-cert-rag
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.13
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+
+  environment:
+    OPENAI_API_KEY: ${ssm:/cert-rag/openai-api-key}
+    ANTHROPIC_API_KEY: ${ssm:/cert-rag/anthropic-api-key}
+    OPENSEARCH_ENDPOINT: ${ssm:/cert-rag/opensearch-endpoint}
+    OPENSEARCH_USERNAME: ${ssm:/cert-rag/opensearch-username}
+    OPENSEARCH_PASSWORD: ${ssm:/cert-rag/opensearch-password}
+    OPENSEARCH_INDEX: databricks-cert-guides
+    S3_BUCKET: manuel-project-test-bucket
+    STAGE: ${opt:stage, 'dev'}
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    usePipenv: true
+    zip: true
+    slim: true
+    noDeploy:
+      - pytest
+      - black
+      - flake8
+
+functions:
+
+  indexer:
+    handler: indexer/handler.lambda_handler
+    role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
+    timeout: 900
+    memorySize: 3008
+    description: "S3 triggered - parses PDF, chunks, embeds and indexes to OpenSearch"
+    events:
+      - s3:
+          bucket: manuel-project-test-bucket
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: exam-guides/
+            - suffix: .pdf
+          existing: true
+
+  query:
+    handler: lambda_query/handler.lambda_handler
+    role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
+    timeout: 60
+    memorySize: 512
+    description: "API Gateway triggered - 3-tier RAG routing with OpenSearch and Claude"
+    events:
+      - http:
+          path: /query
+          method: post
+          cors: true

@@ -1,0 +1,10 @@
+{
+  "name": "databricks-cert-rag",
+  "version": "1.0.0",
+  "description": "Databricks certification RAG pipeline",
+  "private": true,
+  "devDependencies": {
+    "serverless": "^3.0.0",
+    "serverless-python-requirements": "^6.1.0"
+  }
+}
