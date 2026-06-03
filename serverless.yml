@@ -4,7 +4,7 @@ frameworkVersion: "3"
 
 provider:
   name: aws
-  runtime: python3.13
+  runtime: python3.12
   region: us-east-1
   stage: ${opt:stage, 'dev'}
 
