@@ -1,15 +1,16 @@
 import os
 import json
+import boto3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from openai import OpenAI
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
 from aws_lambda_powertools import Logger
 
 logger = Logger(service="databricks-cert-rag-indexer")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIM = 1536
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
+EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
+EMBEDDING_DIM = 1024
 BATCH_SIZE = 20
 MAX_WORKERS = 5
 
@@ -36,8 +37,8 @@ def get_opensearch_client() -> OpenSearch:
     )
 
 
-def get_openai_client() -> OpenAI:
-    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+def get_bedrock_client():
+    return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
 
 def ensure_index_exists(client: OpenSearch):
@@ -85,21 +86,32 @@ def ensure_index_exists(client: OpenSearch):
     logger.info("Index created successfully", extra={"index": OPENSEARCH_INDEX})
 
 
-def embed_batch(batch: list[dict], openai_client: OpenAI, batch_index: int) -> list[dict]:
-    texts = [c["chunk_text"] for c in batch]
-
-    logger.info("Embedding batch", extra={
-        "batch_index": batch_index,
-        "batch_size": len(texts),
+def embed_single(text: str, bedrock_client) -> list[float]:
+    body = json.dumps({
+        "inputText": text,
+        "dimensions": EMBEDDING_DIM,
+        "normalize": True,
     })
 
-    response = openai_client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=texts,
+    response = bedrock_client.invoke_model(
+        modelId=EMBEDDING_MODEL_ID,
+        body=body,
+        contentType="application/json",
+        accept="application/json",
     )
 
-    for i, chunk in enumerate(batch):
-        chunk["embedding"] = response.data[i].embedding
+    result = json.loads(response["body"].read())
+    return result["embedding"]
+
+
+def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dict]:
+    logger.info("Embedding batch", extra={
+        "batch_index": batch_index,
+        "batch_size": len(batch),
+    })
+
+    for chunk in batch:
+        chunk["embedding"] = embed_single(chunk["chunk_text"], bedrock_client)
 
     logger.info("Batch embedded successfully", extra={
         "batch_index": batch_index,
@@ -110,7 +122,7 @@ def embed_batch(batch: list[dict], openai_client: OpenAI, batch_index: int) -> l
 
 
 def embed_and_index(chunks: list[dict]) -> dict:
-    openai_client = get_openai_client()
+    bedrock_client = get_bedrock_client()
     os_client = get_opensearch_client()
 
     ensure_index_exists(os_client)
@@ -122,13 +134,14 @@ def embed_and_index(chunks: list[dict]) -> dict:
         "total_batches": len(batches),
         "batch_size": BATCH_SIZE,
         "max_workers": MAX_WORKERS,
+        "embedding_model": EMBEDDING_MODEL_ID,
     })
 
     embedded_chunks = []
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
-            executor.submit(embed_batch, batch, openai_client, i): i
+            executor.submit(embed_batch, batch, bedrock_client, i): i
             for i, batch in enumerate(batches)
         }
 
