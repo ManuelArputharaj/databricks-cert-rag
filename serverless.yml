@@ -13,8 +13,7 @@ provider:
     serverSideEncryption: AES256
 
   environment:
-    OPENAI_API_KEY: ${ssm:/cert-rag/openai-api-key}
-    ANTHROPIC_API_KEY: ${ssm:/cert-rag/anthropic-api-key}
+    BEDROCK_REGION: us-east-1
     OPENSEARCH_ENDPOINT: ${ssm:/cert-rag/opensearch-endpoint}
     OPENSEARCH_USERNAME: ${ssm:/cert-rag/opensearch-username}
     OPENSEARCH_PASSWORD: ${ssm:/cert-rag/opensearch-password}

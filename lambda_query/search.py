@@ -1,12 +1,15 @@
 import os
-from openai import OpenAI
+import json
+import boto3
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from aws_lambda_powertools import Logger
 
 logger = Logger(service="databricks-cert-rag-query")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
-EMBEDDING_MODEL = "text-embedding-3-small"
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
+EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
+EMBEDDING_DIM = 1024
 TOP_K = 5
 
 
@@ -32,29 +35,40 @@ def get_opensearch_client() -> OpenSearch:
     )
 
 
-def get_openai_client() -> OpenAI:
-    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+def get_bedrock_client():
+    return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
 
 def embed_query(query: str) -> list[float]:
-    client = get_openai_client()
+    bedrock_client = get_bedrock_client()
 
     logger.info("Embedding query", extra={
         "query": query,
-        "model": EMBEDDING_MODEL,
+        "model": EMBEDDING_MODEL_ID,
     })
 
-    response = client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=query,
+    body = json.dumps({
+        "inputText": query,
+        "dimensions": EMBEDDING_DIM,
+        "normalize": True,
+    })
+
+    response = bedrock_client.invoke_model(
+        modelId=EMBEDDING_MODEL_ID,
+        body=body,
+        contentType="application/json",
+        accept="application/json",
     )
+
+    result = json.loads(response["body"].read())
+    embedding = result["embedding"]
 
     logger.info("Query embedded successfully", extra={
         "query": query,
-        "embedding_dim": len(response.data[0].embedding),
+        "embedding_dim": len(embedding),
     })
 
-    return response.data[0].embedding
+    return embedding
 
 
 def search(query: str, exam_name: str = None, top_k: int = TOP_K) -> list[dict]:
@@ -93,7 +107,7 @@ def search(query: str, exam_name: str = None, top_k: int = TOP_K) -> list[dict]:
             },
         }
     else:
-        logger.info("No exam filter applied — searching all exams")
+        logger.info("No exam filter — searching all exams")
         knn_query = {
             "size": top_k,
             "query": {
