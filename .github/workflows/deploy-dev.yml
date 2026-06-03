@@ -1,3 +1,30 @@
+# name: Deploy to AWS Dev
+
+# on:
+#   push:
+#     branches:
+#       - dev
+
+# permissions:
+#   id-token: write
+#   contents: read
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
+
+#       - name: Configure AWS Credentials using OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+#           aws-region: us-east-1
+
+#       - name: Verify AWS Authentication
+#         run: aws sts get-caller-identity
 name: Deploy to AWS Dev
 
 on:
@@ -25,3 +52,25 @@ jobs:
 
       - name: Verify AWS Authentication
         run: aws sts get-caller-identity
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pipenv
+        run: pip install pipenv
+
+      - name: Install Python dependencies via pipenv
+        run: pipenv install --dev
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Deploy to AWS Dev
+        run: npx serverless deploy --stage dev --verbose
