@@ -1,16 +1,14 @@
 import os
-import json
 import time
-import boto3
+from openai import OpenAI
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from aws_lambda_powertools import Logger
 
 logger = Logger(service="databricks-cert-rag-query")
 
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
-BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-EMBEDDING_MODEL_ID = "cohere.embed-english-v3"
-EMBEDDING_DIM = 1024
+EMBEDDING_MODEL_ID = "text-embedding-3-small"
+EMBEDDING_DIM = 1536
 TOP_K = 5
 MAX_RETRIES = 5
 RETRY_BASE_DELAY = 3
@@ -38,8 +36,8 @@ def get_opensearch_client() -> OpenSearch:
     )
 
 
-def get_bedrock_client():
-    return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
+def get_openai_client() -> OpenAI:
+    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 MAX_CHAR_LENGTH = 2000
@@ -50,30 +48,21 @@ def truncate_text(text: str) -> str:
 
 
 def embed_query(query: str) -> list[float]:
-    bedrock_client = get_bedrock_client()
+    openai_client = get_openai_client()
     query = truncate_text(query)
-
-    body = json.dumps({
-        "texts": [query],
-        "input_type": "search_query",
-    })
 
     logger.info("Embedding query", extra={
         "query": query,
         "model": EMBEDDING_MODEL_ID,
-        "input_type": "search_query",
     })
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = bedrock_client.invoke_model(
-                modelId=EMBEDDING_MODEL_ID,
-                body=body,
-                contentType="application/json",
-                accept="application/json",
+            response = openai_client.embeddings.create(
+                model=EMBEDDING_MODEL_ID,
+                input=[query],
             )
-            result = json.loads(response["body"].read())
-            embedding = result["embeddings"][0]
+            embedding = response.data[0].embedding
 
             logger.info("Query embedded successfully", extra={
                 "query": query,
@@ -82,11 +71,12 @@ def embed_query(query: str) -> list[float]:
 
             return embedding
 
-        except bedrock_client.exceptions.ThrottlingException as e:
+        except Exception as e:
             wait = RETRY_BASE_DELAY * (2 ** attempt)
-            logger.warning("Throttled by Bedrock, retrying", extra={
+            logger.warning("OpenAI embedding failed, retrying", extra={
                 "attempt": attempt + 1,
                 "wait_seconds": wait,
+                "error": str(e),
             })
             if attempt < MAX_RETRIES - 1:
                 time.sleep(wait)
