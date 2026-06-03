@@ -8,6 +8,10 @@ provider:
   region: us-east-1
   stage: ${opt:stage, 'dev'}
 
+  deploymentBucket:
+    name: manuel-project-test-bucket
+    serverSideEncryption: AES256
+
   environment:
     OPENAI_API_KEY: ${ssm:/cert-rag/openai-api-key}
     ANTHROPIC_API_KEY: ${ssm:/cert-rag/anthropic-api-key}
