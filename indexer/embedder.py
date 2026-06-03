@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import boto3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
@@ -11,8 +12,10 @@ OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "databricks-cert-guides")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
 EMBEDDING_DIM = 1024
-BATCH_SIZE = 20
-MAX_WORKERS = 5
+BATCH_SIZE = 10
+MAX_WORKERS = 2
+MAX_RETRIES = 5
+RETRY_BASE_DELAY = 2
 
 
 def get_opensearch_client() -> OpenSearch:
@@ -93,15 +96,29 @@ def embed_single(text: str, bedrock_client) -> list[float]:
         "normalize": True,
     })
 
-    response = bedrock_client.invoke_model(
-        modelId=EMBEDDING_MODEL_ID,
-        body=body,
-        contentType="application/json",
-        accept="application/json",
-    )
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=EMBEDDING_MODEL_ID,
+                body=body,
+                contentType="application/json",
+                accept="application/json",
+            )
+            result = json.loads(response["body"].read())
+            return result["embedding"]
 
-    result = json.loads(response["body"].read())
-    return result["embedding"]
+        except bedrock_client.exceptions.ThrottlingException as e:
+            wait = RETRY_BASE_DELAY * (2 ** attempt)
+            logger.warning("Throttled by Bedrock, retrying", extra={
+                "attempt": attempt + 1,
+                "max_retries": MAX_RETRIES,
+                "wait_seconds": wait,
+            })
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(wait)
+            else:
+                logger.error("Max retries exceeded for embedding", extra={"error": str(e)})
+                raise
 
 
 def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dict]:
@@ -112,6 +129,7 @@ def embed_batch(batch: list[dict], bedrock_client, batch_index: int) -> list[dic
 
     for chunk in batch:
         chunk["embedding"] = embed_single(chunk["chunk_text"], bedrock_client)
+        time.sleep(0.3)
 
     logger.info("Batch embedded successfully", extra={
         "batch_index": batch_index,
