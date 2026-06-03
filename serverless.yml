@@ -55,8 +55,8 @@ functions:
   query:
     handler: lambda_query/handler.lambda_handler
     role: arn:aws:iam::${aws:accountId}:role/lambda-execution-role
-    timeout: 60
-    memorySize: 512
+    timeout: 29
+    memorySize: 3008
     description: "API Gateway triggered - 3-tier RAG routing with OpenSearch and Claude"
     events:
       - http:
